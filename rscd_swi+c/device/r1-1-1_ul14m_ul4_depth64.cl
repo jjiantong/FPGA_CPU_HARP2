@@ -34,7 +34,7 @@ int gen_model_param(int x1, int y1, int vx1, int vy1, int x2, int y2, int vx2, i
 		int c[14];
 	}Channel_type;
 
-	channel float4 c_model  __attribute__((depth(256)));
+	channel float4 c_model  __attribute__((depth(64)));
 	channel Channel_type c_count;
 
 __kernel void RANSAC_model(int n_tasks, int cut, __global flowvector *restrict flowvectors,

@@ -167,7 +167,7 @@ inline void verify(flowvector *flow_vector_array, int size_flow_vector_array, in
             best_model    = model_candidate[i];
         }
     }
-    compare_output(candidates, count_candidates, best_outliers, b_outliers);
+    compare_output(candidates, count_candidates, b_outliers, best_outliers);
     free(model_candidate);
     free(outliers_candidate);
 }

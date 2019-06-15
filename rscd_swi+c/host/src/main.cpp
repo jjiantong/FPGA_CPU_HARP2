@@ -72,7 +72,50 @@ struct Params {
         max_iter              = 2000;
         error_threshold       = 3;
         convergence_threshold = 0.75;
-        cut                   = max_iter * alpha;
+        int opt;
+        while((opt = getopt(argc, argv, "ht:w:r:a:f:m:e:c:")) >= 0) {
+            switch(opt) {
+            case 'h':
+                usage();
+                exit(0);
+                break;
+            case 't': n_threads             = atoi(optarg); break;
+            case 'w': n_warmup              = atoi(optarg); break;
+            case 'r': n_reps                = atoi(optarg); break;
+            case 'a': alpha                 = atof(optarg); break;
+            case 'f': file_name             = optarg; break;
+            case 'm': max_iter              = atoi(optarg); break;
+            case 'e': error_threshold       = atoi(optarg); break;
+            case 'c': convergence_threshold = atof(optarg); break;
+            default:
+                fprintf(stderr, "\nUnrecognized option!\n");
+                usage();
+                exit(0);
+            }
+        }
+        cut = max_iter * alpha;
+    }
+
+    void usage() {
+        fprintf(stderr,
+                "\nUsage:  ./rscd [options]"
+                "\n"
+                "\nGeneral options:"
+                "\n    -h        help"
+                "\n    -t <T>    # of host threads (default=4)"
+                "\n    -w <W>    # of untimed warmup iterations (default=5)"
+                "\n    -r <R>    # of timed repetition iterations (default=50)"
+                "\n"
+                "\nData-partitioning-specific options:"
+                "\n    -a <A>    fraction of input elements to process on host (default=0.2)"
+                "\n              NOTE: <A> must be between 0.0 and 1.0"
+                "\n"
+                "\nBenchmark-specific options:"
+                "\n    -f <F>    input file name (default=input/vectors.csv)"
+                "\n    -m <M>    maximum # of iterations (default=2000)"
+                "\n    -e <E>    error threshold (default=3)"
+                "\n    -c <C>    convergence threshold (default=0.75)"
+                "\n");
     }
 };
 
@@ -199,17 +242,19 @@ int main(int argc, char **argv) {
 
     flowvector *h_flow_vector_array = (flowvector *)clSVMAllocAltera(context, 0, n_flow_vectors * sizeof(flowvector), 1024);
     int *h_random_numbers           = (int *)clSVMAllocAltera(context, 0, 2 * p.max_iter * sizeof(int), 1024);
-    int *h_model_candidate          = (int *)clSVMAllocAltera(context, 0, p.max_iter * sizeof(int), 1024);
-    int *h_outliers_candidate       = (int *)clSVMAllocAltera(context, 0, p.max_iter * sizeof(int), 1024);
+    int *h_model_candidate          = (int *)malloc(p.max_iter * sizeof(int));
+    int *h_outliers_candidate       = (int *)malloc(p.max_iter * sizeof(int));
     float *h_model_param_local      = (float *)clSVMAllocAltera(context, 0, 4 * p.max_iter * sizeof(float), 1024);
-    std::atomic_int *h_g_out_id     = (std::atomic_int *)clSVMAllocAltera(context, 0, sizeof(std::atomic_int *), 1024);
+    std::atomic_int *h_g_out_id     = (std::atomic_int *)malloc(sizeof(std::atomic_int *));
     
     flowvector *d_flow_vector_array = h_flow_vector_array;
     int *d_random_numbers           = h_random_numbers;
-    int *d_model_candidate          = h_model_candidate;
-    int *d_outliers_candidate       = h_outliers_candidate;
-    float *d_model_param_local      = h_model_param_local;
-    std::atomic_int *d_g_out_id     = h_g_out_id;  
+    cl_mem d_model_candidate = clCreateBuffer(
+        context, CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR, p.max_iter * sizeof(int), NULL, &status);
+    cl_mem d_outliers_candidate = clCreateBuffer(
+        context, CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR, p.max_iter * sizeof(int), NULL, &status);
+    cl_mem d_g_out_id =
+        clCreateBuffer(context, CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR, sizeof(int), NULL, &status);
     clFinish(queue_0);
 
     double e_alloc = getCurrentTimestamp();
@@ -228,6 +273,15 @@ int main(int argc, char **argv) {
 
     // copy to device
     double s_cp = getCurrentTimestamp();
+    if(p.alpha < 1.0) {
+        status = clEnqueueWriteBuffer(queue_0, d_model_candidate, CL_TRUE, 0, p.max_iter * sizeof(int), 
+            h_model_candidate, 0, NULL, NULL);
+        status = clEnqueueWriteBuffer(queue_0, d_outliers_candidate, CL_TRUE, 0, p.max_iter * sizeof(int),
+            h_outliers_candidate, 0, NULL, NULL);
+        status = clEnqueueWriteBuffer(queue_0, d_g_out_id, CL_TRUE, 0, sizeof(int), 
+            h_g_out_id, 0, NULL, NULL);
+        clFinish(queue_0);
+    }
     double e_cp = getCurrentTimestamp();
     double t_cp = e_cp - s_cp;
     printf("Copy to Device Time: %0.3f ms\n", t_cp * 1e3);
@@ -236,7 +290,7 @@ int main(int argc, char **argv) {
     // create the program
     cl_int kernel_status;  
     size_t binsize = 0;
-    unsigned char * binary_file = loadBinaryFile("bin/r1_1_1_ul14m_ul4_depth256.aocx", &binsize); 
+    unsigned char * binary_file = loadBinaryFile("bin/r1_1_1_ul14m_ul4_depth64.aocx", &binsize); 
     if(!binary_file) {
         dump_error("Failed loadBinaryFile.", status);
         freeResources();
@@ -292,12 +346,19 @@ int main(int argc, char **argv) {
         memset((void *)h_model_param_local, 0, 4 * p.max_iter * sizeof(float));
 
         h_g_out_id[0] = 0;
+        if(p.alpha < 1.0) {
+            status = clEnqueueWriteBuffer(queue_0, d_model_candidate, CL_TRUE, 0, p.max_iter * sizeof(int), 
+                h_model_candidate, 0, NULL, NULL);
+            status = clEnqueueWriteBuffer(queue_0, d_outliers_candidate, CL_TRUE, 0, p.max_iter * sizeof(int),
+                h_outliers_candidate, 0, NULL, NULL);
+            status = clEnqueueWriteBuffer(queue_0, d_g_out_id, CL_TRUE, 0, sizeof(int), 
+                h_g_out_id, 0, NULL, NULL);
+        }
         clFinish(queue_0);
 
         if(rep >= p.n_warmup)
             s_kernel = getCurrentTimestamp();
 
-status = clSetKernelArgSVMPointerAltera(kernel, 0, (void*)hdatain);
         // Launch FPGA threads
         clSetKernelArg(kernel_model, 0, sizeof(int), &p.max_iter);
         clSetKernelArg(kernel_model, 1, sizeof(int), &p.cut);
@@ -314,9 +375,9 @@ status = clSetKernelArgSVMPointerAltera(kernel, 0, (void*)hdatain);
 		clSetKernelArg(kernel_out, 1, sizeof(float), &p.convergence_threshold);
 		clSetKernelArg(kernel_out, 2, sizeof(int), &p.max_iter);
         clSetKernelArg(kernel_out, 3, sizeof(int), &p.cut);
-		clSetKernelArgSVMPointerAltera(kernel_out, 4, (void*)d_model_candidate);
-		clSetKernelArgSVMPointerAltera(kernel_out, 5, (void*)d_outliers_candidate);
-		clSetKernelArgSVMPointerAltera(kernel_out, 6, (void*)d_g_out_id);
+        clSetKernelArg(kernel_out, 4, sizeof(cl_mem), &d_model_candidate);
+        clSetKernelArg(kernel_out, 5, sizeof(cl_mem), &d_outliers_candidate);
+        clSetKernelArg(kernel_out, 6, sizeof(cl_mem), &d_g_out_id);
 
         // Kernel launch
         status = clEnqueueTask(queue_model, kernel_model, 0, NULL, NULL);
@@ -342,6 +403,17 @@ status = clSetKernelArgSVMPointerAltera(kernel, 0, (void*)hdatain);
         // Copy back
         if(rep >= p.n_warmup)
             s_cpb = getCurrentTimestamp();
+        int d_candidates = 0;
+        if(p.alpha < 1.0) {
+            status = clEnqueueReadBuffer(queue_0, d_g_out_id, CL_TRUE, 0, sizeof(int), 
+                &d_candidates, 0, NULL, NULL);
+            status = clEnqueueReadBuffer(queue_0, d_model_candidate, CL_TRUE, 0, d_candidates * sizeof(int), 
+                &h_model_candidate[h_g_out_id[0]], 0, NULL, NULL);
+            status = clEnqueueReadBuffer(queue_0, d_outliers_candidate, CL_TRUE, 0, d_candidates * sizeof(int),
+                &h_outliers_candidate[h_g_out_id[0]], 0, NULL, NULL);           
+        }
+        h_g_out_id[0] += d_candidates;
+        clFinish(queue_0);
         if(rep >= p.n_warmup){
             e_cpb = getCurrentTimestamp();
             t_cpb += (e_cpb - s_cpb); 
@@ -364,7 +436,7 @@ status = clSetKernelArgSVMPointerAltera(kernel, 0, (void*)hdatain);
     }
 
     printf("Kernel Time: %0.3f ms\n", t_kernel * 1e3 / p.n_reps);
-    printf("Copy Back Time: %0.3f ms\n", t_cpb * 1e3 / p.n_reps);
+    printf("Copy Back and Merge Time: %0.3f ms\n", t_cpb * 1e3 / p.n_reps);
 
 
     // Verify answer
@@ -373,10 +445,13 @@ status = clSetKernelArgSVMPointerAltera(kernel, 0, (void*)hdatain);
 
     // Free memory
     double s_deal = getCurrentTimestamp();
-    clSVMFreeAltera(context, h_model_candidate);
-    clSVMFreeAltera(context, h_outliers_candidate);
-    clSVMFreeAltera(context, h_model_param_local);
-    clSVMFreeAltera(context, h_g_out_id);
+    //free(h_model_candidate);
+    //free(h_outliers_candidate);
+    //free(h_model_param_local);
+    //free(h_g_out_id);
+    status = clReleaseMemObject(d_model_candidate);
+    status = clReleaseMemObject(d_outliers_candidate);
+    status = clReleaseMemObject(d_g_out_id);
     clSVMFreeAltera(context, h_flow_vector_array);
     clSVMFreeAltera(context, h_random_numbers);
     freeResources();
