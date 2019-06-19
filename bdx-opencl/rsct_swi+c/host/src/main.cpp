@@ -268,7 +268,7 @@ int main(int argc, char **argv) {
     // create the program
     cl_int kernel_status;  
     size_t binsize = 0;
-    unsigned char * binary_file = loadBinaryFile("bin/r1_1_1.aocx", &binsize); 
+    unsigned char * binary_file = loadBinaryFile("bin/r1_1_ul14m_ul4.aocx", &binsize); 
     if(!binary_file) {
         dump_error("Failed loadBinaryFile.", status);
         freeResources();
