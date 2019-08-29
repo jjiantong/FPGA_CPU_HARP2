@@ -92,3 +92,4 @@ cd fpga_cpu_harp2/pac-a10/$APP
 ## Notes
 1. Atomics not supported in systems with multiported memories. Therefore, for RSCD application, we have to use the near-optimal execution model (SWI+C), instead of the optimal execution model (NDR+C).
 2. Due to atomic operations, SVM cannot be used to share buffers between the CPU and the FPGA for some variables in the RSCD application.
+3. PAC A10 does not seem to support the OpenCL channel.
