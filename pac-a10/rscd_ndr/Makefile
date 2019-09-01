@@ -41,7 +41,7 @@ CXXFLAGS += -g -O0 -D__USE_XOPEN2K8
 else
 CXXFLAGS += -O2 -D__USE_XOPEN2K8
 endif
-CXXFLAGS+= -Wall -I$AALSDK/include -I/usr/local/include -DHAVE_CONFIG_H -DTESTB -g -L$AALSDK/lib  -L/usr/local/lib 
+CXXFLAGS+= -Wall -maxv2 -I$AALSDK/include -I/usr/local/include -DHAVE_CONFIG_H -DTESTB -g -L$AALSDK/lib  -L/usr/local/lib 
 CXXFLAGS+= -std=c++11
 
 # Make it all!
