@@ -51,7 +51,7 @@ void run_cpu_threads(int *model_candidate, int *outliers_candidate, float *model
     for(int k = 0; k < n_threads; k++) {
 
         cpu_threads.push_back(std::thread([=]() { // [=] 
-	__m256i outlier_local_count;
+	        __m256i outlier_local_count;
 
             flowvector fv[16];
             __m256i error_threshold2 = _mm256_set1_epi32(error_threshold);
@@ -60,11 +60,10 @@ void run_cpu_threads(int *model_candidate, int *outliers_candidate, float *model
             // Each thread performs one iteration
 
             for(int iter = k*8; iter < n_tasks * alpha; iter = iter + 8*n_threads) {
-            //for(int iter = cpu_first(&p); cpu_more(&p); iter = cpu_next(&p)) {
                 // Obtain model parameters for First Order Flow - gen_firstOrderFlow_model
-                float *model_param1 =
-                    &(model_param_local)
-                        [4 * iter]; // xc=model_param[0], yc=model_param[1], D=model_param[2], R=model_param[3]
+            //    float *model_param1 =
+            //        &(model_param_local)
+            //            [4 * iter]; // xc=model_param[0], yc=model_param[1], D=model_param[2], R=model_param[3]
 		        outlier_local_count = _mm256_set1_epi32(0);
                 int *a = (int*)&outlier_local_count;                
 				float model_param[8][4] = {0};
@@ -76,9 +75,6 @@ void run_cpu_threads(int *model_candidate, int *outliers_candidate, float *model
                         rand_num     = random_numbers[(iter+i) * 2 + 1];
                         fv[2*i+1]        = flowvectors[rand_num];
                     }
-                // Select two random flow vectors
-
- 
 
                 int ret[8] = {0};
                 for(int i = 0; i < 8; i++)
@@ -86,20 +82,16 @@ void run_cpu_threads(int *model_candidate, int *outliers_candidate, float *model
                     ret[i] = gen_model_param(fv[2*i],fv[2*i+1],model_param[i]);
                     if (ret[i] == 0) model_param[i][0] = -2011;
                     if (model_param[i][0] == -2011) a[i] = 20000;                   
-		//    printf("%d %d\n",iter+i,a[i]);
                 }
 
                 
                 float m[4][8] = {0};
                 for(int i = 0; i < 8; i++)
                 {
-//printf("%d ",iter+i);
                     for(int j = 0; j < 4; j++)
                     {
                         m[j][i] = model_param[i][j];
-//			printf("%f ",model_param[i][j]);
                     }
-//		printf("\n");
                     
                 }
 
@@ -108,9 +100,7 @@ void run_cpu_threads(int *model_candidate, int *outliers_candidate, float *model
                 __m256 m1 = _mm256_i32gather_ps(m[1],vindex_m,4);
                 __m256 m2 = _mm256_i32gather_ps(m[2],vindex_m,4);
                 __m256 m3 = _mm256_i32gather_ps(m[3],vindex_m,4);
-		for(int i = 0;i<8;i++){
-		//printf("%d %d \n",iter+i,a[i]);
-		}
+
                for(int i = 0; i < flowvector_count; i++)//赋值操作很耗时。set or gather or 直接赋值 考虑前后的依赖关系，缓存角度，时间局部性，空间局部性
                {
                     flowvector fvreg = flowvectors[i]; // x, y, vx, vy
@@ -137,11 +127,9 @@ void run_cpu_threads(int *model_candidate, int *outliers_candidate, float *model
                     outlier_local_count    = _mm256_sub_epi32(outlier_local_count,((retx&rety)^-1));                 
                                                                                                               
                 }
-  		for(int i = 0;i<8;i++){
-	//	printf("%d %d\n",iter+i,a[i]);		
-		if(model_param[i][0] == -2011) a[i] = a[i]+10000;
-		}            
-//printf("%d %f %f\n",flowvector_count,convergence_threshold,flowvector_count*convergence_threshold);
+                for(int i = 0;i<8;i++){	
+                    if(model_param[i][0] == -2011) a[i] = a[i]+10000;
+                }            
 
                 for(int i = 0;i<8;i++)
                 {                      
