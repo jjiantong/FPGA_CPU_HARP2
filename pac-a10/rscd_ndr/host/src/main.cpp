@@ -254,8 +254,8 @@ int main(int argc, char **argv) {
     if(p.alpha < 1.0) {
         status = clEnqueueWriteBuffer(queue, d_flow_vector_array, CL_TRUE, 0, n_flow_vectors * sizeof(flowvector), 
             h_flow_vector_array, 0, NULL, NULL);
-        status = clEnqueueWriteBuffer(queue, d_random_numbers, CL_TRUE, 0, 2 * p.max_iter * sizeof(int),
-            h_random_numbers, 0, NULL, NULL);      
+        status = clEnqueueWriteBuffer(queue, d_random_numbers, CL_TRUE, 0, 2 * p.max_iter * (1-p.alpha) * sizeof(int),
+            &h_random_numbers[2*p.cut], 0, NULL, NULL);      
         status = clEnqueueWriteBuffer(queue, d_model_candidate, CL_TRUE, 0, p.max_iter * sizeof(int), 
             h_model_candidate, 0, NULL, NULL);
         status = clEnqueueWriteBuffer(queue, d_outliers_candidate, CL_TRUE, 0, p.max_iter * sizeof(int),
