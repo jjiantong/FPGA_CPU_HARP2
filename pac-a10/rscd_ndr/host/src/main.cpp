@@ -53,8 +53,8 @@ struct Params {
 
     Params(int argc, char **argv) {
         n_threads             = 4;
-        n_warmup              = 5;
-        n_reps                = 50;
+        n_warmup              = 0;
+        n_reps                = 1;
         alpha                 = 0;
         file_name             = "input/vectors.csv";
         max_iter              = 2000;
@@ -223,6 +223,9 @@ int main(int argc, char **argv) {
     float *h_model_param_local      = (float *)malloc(4 * p.max_iter * sizeof(float));
     std::atomic_int *h_g_out_id     = (std::atomic_int *)malloc(sizeof(std::atomic_int *));
     
+    int *hd_model_candidate          = (int *)malloc(p.max_iter * sizeof(int));
+    int *hd_outliers_candidate       = (int *)malloc(p.max_iter * sizeof(int));
+
     cl_mem d_flow_vector_array = clCreateBuffer(
         context, CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR, n_flow_vectors * sizeof(flowvector), NULL, &status);
     cl_mem d_random_numbers = clCreateBuffer(
@@ -308,7 +311,7 @@ int main(int argc, char **argv) {
     double s_kernel, e_kernel, t_kernel = 0;
     double s_cpb, e_cpb, t_cpb = 0;
     printf("Alpha = %0.1f\n", p.alpha);
-
+    printf("Threads = %d\n",p.n_threads);
     for(int rep = 0; rep < p.n_warmup + p.n_reps; rep++) {
 
         // Reset
@@ -351,17 +354,50 @@ int main(int argc, char **argv) {
             p.convergence_threshold, h_g_out_id, p.n_threads, p.max_iter, p.alpha);
       
         main_thread.join();
-        clFinish(queue);
+        clFinish(queue); 
 
+        for(int i = 0; i < h_g_out_id[0]; i++) {
+            if(h_outliers_candidate[i] < best_outliers) {
+                best_outliers = h_outliers_candidate[i];
+                best_model    = h_model_candidate[i];
+            }
+        }
+        verify(h_flow_vector_array, n_flow_vectors, h_random_numbers, p.max_iter*p.alpha, p.error_threshold,
+            p.convergence_threshold, h_g_out_id[0], best_outliers);
+        printf("verify cpu kernel\n");
         if(rep >= p.n_warmup){
             e_kernel = getCurrentTimestamp();
             t_kernel += (e_kernel - s_kernel); 
         }
+        best_model     = -1;
+        best_outliers  = n_flow_vectors;
+        int hd_candidates = 0;
 
-
+        if(p.alpha < 1.0) {
+            status = clEnqueueReadBuffer(queue, d_g_out_id, CL_TRUE, 0, sizeof(int), 
+                &hd_candidates, 0, NULL, NULL);
+            status = clEnqueueReadBuffer(queue, d_model_candidate, CL_TRUE, 0, hd_candidates * sizeof(int), 
+                hd_model_candidate, 0, NULL, NULL);
+            status = clEnqueueReadBuffer(queue, d_outliers_candidate, CL_TRUE, 0, hd_candidates * sizeof(int),
+                hd_outliers_candidate, 0, NULL, NULL);           
+        }
+        clFinish(queue);
+        for(int i = 0; i < hd_candidates; i++) {
+            if(hd_outliers_candidate[i] < best_outliers) {
+                best_outliers = hd_outliers_candidate[i];
+                best_model    = hd_model_candidate[i];
+            }
+        }
+        verify(h_flow_vector_array, n_flow_vectors, &h_random_numbers[2*p.cut], p.max_iter*(1-p.alpha), p.error_threshold,
+            p.convergence_threshold, hd_candidates, best_outliers);
+        printf("verify fpga kernel\n");
         // Copy back
         if(rep >= p.n_warmup)
             s_cpb = getCurrentTimestamp();
+        best_model     = -1;
+        best_outliers  = n_flow_vectors;
+
+
         int d_candidates = 0;
         if(p.alpha < 1.0) {
             status = clEnqueueReadBuffer(queue, d_g_out_id, CL_TRUE, 0, sizeof(int), 
@@ -371,6 +407,8 @@ int main(int argc, char **argv) {
             status = clEnqueueReadBuffer(queue, d_outliers_candidate, CL_TRUE, 0, d_candidates * sizeof(int),
                 &h_outliers_candidate[h_g_out_id[0]], 0, NULL, NULL);           
         }
+
+
         h_g_out_id[0] += d_candidates;
         clFinish(queue);
         if(rep >= p.n_warmup){
@@ -393,10 +431,10 @@ int main(int argc, char **argv) {
             t_kernel += (e_kernel - s_kernel); 
         }
     }
-
+/*
     printf("Kernel Time: %0.3f ms\n", t_kernel * 1e3 / p.n_reps);
     printf("Copy Back and Merge Time: %0.3f ms\n", t_cpb * 1e3 / p.n_reps);
-
+*/
 
     // Verify answer
     verify(h_flow_vector_array, n_flow_vectors, h_random_numbers, p.max_iter, p.error_threshold,
@@ -418,7 +456,7 @@ int main(int argc, char **argv) {
     freeResources();
     double e_deal = getCurrentTimestamp();
     double t_deal = e_deal - s_deal;
-    printf("Deallocation Time: %0.3f ms\n", t_deal * 1e3);
+//    printf("Deallocation Time: %0.3f ms\n", t_deal * 1e3);
 
     printf("Test Passed\n");
     return 0;
