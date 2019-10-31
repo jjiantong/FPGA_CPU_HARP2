@@ -207,6 +207,7 @@ int main(int argc, char **argv) {
     unsigned char *    h_in_out[2];
 	h_in_out[CPU_PROXY]  = (unsigned char *)malloc(in_size);
     h_in_out[FPGA_PROXY] = (unsigned char *)clSVMAllocAltera(context, 0, in_size, 1024);
+    unsigned char *d_in_out = h_in_out[FPGA_PROXY];    
     unsigned char *h_interm_cpu_proxy  = (unsigned char *)malloc(in_size);
 	unsigned char *h_theta_cpu_proxy   = (unsigned char *)malloc(in_size);
     unsigned char *h_interm_fpga_proxy = (unsigned char *)clSVMAllocAltera(context, 0, in_size, 1024);
@@ -310,7 +311,7 @@ int main(int argc, char **argv) {
                                         
         // GAUSSIAN KERNEL
         // Set arguments
-        clSetKernelArgSVMPointerAltera(kernel_0, 0, h_in_out[FPGA_PROXY]);
+        clSetKernelArgSVMPointerAltera(kernel_0, 0, d_in_out);
         clSetKernelArgSVMPointerAltera(kernel_0, 1, h_interm_fpga_proxy);
         clSetKernelArg(kernel_0, 2, sizeof(int), &colsc);
         // Kernel launch
@@ -320,7 +321,7 @@ int main(int argc, char **argv) {
         // SOBEL KERNEL
         // Set arguments
         clSetKernelArgSVMPointerAltera(kernel_1, 0, h_interm_fpga_proxy);
-        clSetKernelArgSVMPointerAltera(kernel_1, 1, h_in_out[FPGA_PROXY]);
+        clSetKernelArgSVMPointerAltera(kernel_1, 1, d_in_out);
         clSetKernelArgSVMPointerAltera(kernel_1, 2, h_theta_fpga_proxy);
         clSetKernelArg(kernel_1, 3, sizeof(int), &colsc);
         // Kernel launch
@@ -329,7 +330,7 @@ int main(int argc, char **argv) {
 
         // NON-MAXIMUM SUPPRESSION KERNEL
         // Set arguments
-        clSetKernelArgSVMPointerAltera(kernel_2, 0, h_in_out[FPGA_PROXY]);
+        clSetKernelArgSVMPointerAltera(kernel_2, 0, d_in_out);
         clSetKernelArgSVMPointerAltera(kernel_2, 1, h_interm_fpga_proxy);
         clSetKernelArgSVMPointerAltera(kernel_2, 2, h_theta_fpga_proxy);
         clSetKernelArg(kernel_2, 3, sizeof(int), &colsc);
@@ -340,7 +341,7 @@ int main(int argc, char **argv) {
         // HYSTERESIS KERNEL
         // Set arguments                    
         clSetKernelArgSVMPointerAltera(kernel_3, 0, h_interm_fpga_proxy);
-        clSetKernelArgSVMPointerAltera(kernel_3, 1, h_in_out[FPGA_PROXY]);
+        clSetKernelArgSVMPointerAltera(kernel_3, 1, d_in_out);
         clSetKernelArg(kernel_3, 2, sizeof(int), &colsc);
         // Kernel launch
         status = clEnqueueNDRangeKernel(
