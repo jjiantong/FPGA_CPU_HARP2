@@ -378,21 +378,34 @@ int main(int argc, char **argv) {
         clSetKernelArg(kernel_out, 4, sizeof(cl_mem), &d_model_candidate);
         clSetKernelArg(kernel_out, 5, sizeof(cl_mem), &d_outliers_candidate);
         clSetKernelArg(kernel_out, 6, sizeof(cl_mem), &d_g_out_id);
-
+        if (p.alpha < 1)
+        {
+            status = clEnqueueTask(queue_model, kernel_model, 0, NULL, NULL);
+            status = clEnqueueTask(queue_0, kernel_0, 0, NULL, NULL);
+            status = clEnqueueTask(queue_out, kernel_out, 0, NULL, NULL);          
+        }
+        
         // Kernel launch
-        status = clEnqueueTask(queue_model, kernel_model, 0, NULL, NULL);
-        status = clEnqueueTask(queue_0, kernel_0, 0, NULL, NULL);
-        status = clEnqueueTask(queue_out, kernel_out, 0, NULL, NULL);
 
+        if (p.alpha > 0)
+        {
+            std::thread main_thread(run_cpu_threads, h_model_candidate, h_outliers_candidate, h_model_param_local,
+                h_flow_vector_array, n_flow_vectors, h_random_numbers, p.error_threshold,
+                p.convergence_threshold, h_g_out_id, p.n_threads, p.max_iter, p.alpha);
+            main_thread.join();                 
+        }
+        
         // Launch CPU threads
-        std::thread main_thread(run_cpu_threads, h_model_candidate, h_outliers_candidate, h_model_param_local,
-            h_flow_vector_array, n_flow_vectors, h_random_numbers, p.error_threshold,
-            p.convergence_threshold, h_g_out_id, p.n_threads, p.max_iter, p.alpha);
 
-        clFinish(queue_model);
-        clFinish(queue_0);
-        clFinish(queue_out);
-        main_thread.join();
+        if (p.alpha < 1)
+        {
+            clFinish(queue_model);
+            clFinish(queue_0);
+            clFinish(queue_out);            
+        }
+        
+        
+
 
         if(rep >= p.n_warmup){
             e_kernel = getCurrentTimestamp();

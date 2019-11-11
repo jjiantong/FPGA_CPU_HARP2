@@ -204,14 +204,14 @@ int main(int argc, char **argv) {
     
     const int CPU_PROXY = 0;
     const int FPGA_PROXY = 1;
-    unsigned char *    h_in_out[2];
-	h_in_out[CPU_PROXY]  = (unsigned char *)malloc(in_size);
-    h_in_out[FPGA_PROXY] = (unsigned char *)clSVMAllocAltera(context, 0, in_size, 1024);
-    unsigned char *d_in_out = h_in_out[FPGA_PROXY];    
-    unsigned char *h_interm_cpu_proxy  = (unsigned char *)malloc(in_size);
-	unsigned char *h_theta_cpu_proxy   = (unsigned char *)malloc(in_size);
-    unsigned char *h_interm_fpga_proxy = (unsigned char *)clSVMAllocAltera(context, 0, in_size, 1024);
-    unsigned char *h_theta_fpga_proxy  = (unsigned char *)clSVMAllocAltera(context, 0, in_size, 1024);
+    int *    h_in_out[2];
+	h_in_out[CPU_PROXY]  = (int *)malloc(rowsc * colsc *sizeof(int));
+    h_in_out[FPGA_PROXY] = (int *)clSVMAllocAltera(context, 0, rowsc * colsc * sizeof(int), 1024);
+    int *d_in_out = h_in_out[FPGA_PROXY];    
+    int *h_interm_cpu_proxy  = (int *)malloc(rowsc * colsc *sizeof(int));
+	int *h_theta_cpu_proxy   = (int *)malloc(rowsc * colsc * sizeof(int));
+    int *h_interm_fpga_proxy = (int *)clSVMAllocAltera(context, 0, rowsc * colsc * sizeof(int), 1024);
+    int *h_theta_fpga_proxy  = (int *)clSVMAllocAltera(context, 0, rowsc * colsc * sizeof(int), 1024);
     clFinish(queue);
 
     double e_alloc = getCurrentTimestamp();
@@ -286,75 +286,69 @@ int main(int argc, char **argv) {
     int cut = n_frames * p.alpha;
 
     double s_kernel = getCurrentTimestamp();
+
     std::thread main_thread(run_cpu_threads , all_gray_frames, all_out_frames, h_in_out[CPU_PROXY], h_interm_cpu_proxy, h_theta_cpu_proxy,
-        rowsc, colsc, p.n_threads, cut);    
-    
-/*        
-    for(int task_id = 0; task_id < cut; task_id++) {
+        rowsc, colsc, p.n_threads, cut); 
 
-        // Next frame
-        memcpy(h_in_out[CPU_PROXY], all_gray_frames[task_id], in_size);
+    if (p.alpha < 1)
+    {
+        for(int task_id = cut; task_id < n_frames; task_id++) {
 
-        // Launch CPU threads
-        std::thread main_thread(run_cpu_threads, h_in_out[CPU_PROXY], h_interm_cpu_proxy, h_theta_cpu_proxy,
-            rowsc, colsc, p.n_threads, task_id);
-        main_thread.join();
+            // Next frame
+            memcpy(h_in_out[FPGA_PROXY], all_gray_frames[task_id], in_size);
 
-        memcpy(all_out_frames[task_id], h_in_out[CPU_PROXY], in_size);
+            // Execution configuration
+            size_t ls[2]  = {(size_t)p.n_work_items, (size_t)p.n_work_items};
+            size_t gs[2]  = {(size_t)(colsc - 2), (size_t)(rowsc - 2)}; 
+                                            
+            // GAUSSIAN KERNEL
+            // Set arguments
+            clSetKernelArgSVMPointerAltera(kernel_0, 0, d_in_out);
+            clSetKernelArgSVMPointerAltera(kernel_0, 1, h_interm_fpga_proxy);
+            clSetKernelArg(kernel_0, 2, sizeof(int), &colsc);
+            // Kernel launch
+            status = clEnqueueNDRangeKernel(
+                queue, kernel_0, 2, NULL, gs, ls, 0, NULL, NULL);
+
+            // SOBEL KERNEL
+            // Set arguments
+            clSetKernelArgSVMPointerAltera(kernel_1, 0, h_interm_fpga_proxy);
+            clSetKernelArgSVMPointerAltera(kernel_1, 1, d_in_out);
+            clSetKernelArgSVMPointerAltera(kernel_1, 2, h_theta_fpga_proxy);
+            clSetKernelArg(kernel_1, 3, sizeof(int), &colsc);
+            // Kernel launch
+            status = clEnqueueNDRangeKernel(
+                queue, kernel_1, 2, NULL, gs, ls, 0, NULL, NULL);
+
+            // NON-MAXIMUM SUPPRESSION KERNEL
+            // Set arguments
+            clSetKernelArgSVMPointerAltera(kernel_2, 0, d_in_out);
+            clSetKernelArgSVMPointerAltera(kernel_2, 1, h_interm_fpga_proxy);
+            clSetKernelArgSVMPointerAltera(kernel_2, 2, h_theta_fpga_proxy);
+            clSetKernelArg(kernel_2, 3, sizeof(int), &colsc);
+            // Kernel launch
+            status = clEnqueueNDRangeKernel(
+                queue, kernel_2, 2, NULL, gs, ls, 0, NULL, NULL);
+
+            // HYSTERESIS KERNEL
+            // Set arguments                    
+            clSetKernelArgSVMPointerAltera(kernel_3, 0, h_interm_fpga_proxy);
+            clSetKernelArgSVMPointerAltera(kernel_3, 1, d_in_out);
+            clSetKernelArg(kernel_3, 2, sizeof(int), &colsc);
+            // Kernel launch
+            status = clEnqueueNDRangeKernel(
+                queue, kernel_3, 2, NULL, gs, ls, 0, NULL, NULL);
+
+            clFinish(queue);
+
+            memcpy(all_out_frames[task_id], h_in_out[FPGA_PROXY], in_size);                   
+        }    
     }
-*/
-    for(int task_id = cut; task_id < n_frames; task_id++) {
 
-        // Next frame
-        memcpy(h_in_out[FPGA_PROXY], all_gray_frames[task_id], in_size);
-
-        // Execution configuration
-        size_t ls[2]  = {(size_t)p.n_work_items, (size_t)p.n_work_items};
-        size_t gs[2]  = {(size_t)(colsc - 2), (size_t)(rowsc - 2)}; 
-                                        
-        // GAUSSIAN KERNEL
-        // Set arguments
-        clSetKernelArgSVMPointerAltera(kernel_0, 0, d_in_out);
-        clSetKernelArgSVMPointerAltera(kernel_0, 1, h_interm_fpga_proxy);
-        clSetKernelArg(kernel_0, 2, sizeof(int), &colsc);
-        // Kernel launch
-        status = clEnqueueNDRangeKernel(
-            queue, kernel_0, 2, NULL, gs, ls, 0, NULL, NULL);
-
-        // SOBEL KERNEL
-        // Set arguments
-        clSetKernelArgSVMPointerAltera(kernel_1, 0, h_interm_fpga_proxy);
-        clSetKernelArgSVMPointerAltera(kernel_1, 1, d_in_out);
-        clSetKernelArgSVMPointerAltera(kernel_1, 2, h_theta_fpga_proxy);
-        clSetKernelArg(kernel_1, 3, sizeof(int), &colsc);
-        // Kernel launch
-        status = clEnqueueNDRangeKernel(
-            queue, kernel_1, 2, NULL, gs, ls, 0, NULL, NULL);
-
-        // NON-MAXIMUM SUPPRESSION KERNEL
-        // Set arguments
-        clSetKernelArgSVMPointerAltera(kernel_2, 0, d_in_out);
-        clSetKernelArgSVMPointerAltera(kernel_2, 1, h_interm_fpga_proxy);
-        clSetKernelArgSVMPointerAltera(kernel_2, 2, h_theta_fpga_proxy);
-        clSetKernelArg(kernel_2, 3, sizeof(int), &colsc);
-        // Kernel launch
-        status = clEnqueueNDRangeKernel(
-            queue, kernel_2, 2, NULL, gs, ls, 0, NULL, NULL);
-
-        // HYSTERESIS KERNEL
-        // Set arguments                    
-        clSetKernelArgSVMPointerAltera(kernel_3, 0, h_interm_fpga_proxy);
-        clSetKernelArgSVMPointerAltera(kernel_3, 1, d_in_out);
-        clSetKernelArg(kernel_3, 2, sizeof(int), &colsc);
-        // Kernel launch
-        status = clEnqueueNDRangeKernel(
-            queue, kernel_3, 2, NULL, gs, ls, 0, NULL, NULL);
-
-        clFinish(queue);
-
-        memcpy(all_out_frames[task_id], h_in_out[FPGA_PROXY], in_size);                   
-    }
     main_thread.join();
+    
+    
+
     double e_kernel = getCurrentTimestamp();
     double t_kernel = e_kernel - s_kernel; 
     printf("Kernel Time: %0.3f ms\n", t_kernel * 1e3);
